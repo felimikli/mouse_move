@@ -208,7 +208,6 @@ void grab_keyboard(int fd) {
 
 void ungrab_keyboard(int fd) {
 	ioctl(fd, EVIOCGRAB, 0);
-	close(fd);
 }
 
 
@@ -231,7 +230,7 @@ void release_keys(int fd) {
 
 int main() {
 	int err;
-	int fd;
+	int keyboard_fd;
 	int uifd;
 
 	struct libevdev_uinput* ui_mouse_dev;
@@ -239,10 +238,10 @@ int main() {
 	char keyboard_path[64];
 
 	struct input_event event;
-	int quit = 0;
+	bool quit = false;
 	ssize_t n;
 
-	int key_states[KEY_MAX] = {0};
+	int key_states_zero[KEY_MAX] = {0};
 
 
 	if(strlen(KEYBOARD_DEVICE) >= sizeof keyboard_path) {
@@ -268,8 +267,8 @@ int main() {
 		}
 	}
 
-	fd = open(keyboard_path, O_RDONLY | O_NONBLOCK);
-	if(fd < 0) {
+	keyboard_fd = open(keyboard_path, O_RDONLY | O_NONBLOCK);
+	if(keyboard_fd < 0) {
 		perror("Error opening input device");
 		return 1;
 	}
@@ -284,7 +283,7 @@ int main() {
 
 	Mouse m;
 	m.uidev = ui_mouse_dev;
-	m.key_states = key_states;
+	m.key_states = key_states_zero;
 	m.speed = SPEED_NORMAL;
 	m.click_tick.tv_sec = 0;
 	m.click_tick.tv_nsec = 0;
@@ -293,31 +292,47 @@ int main() {
 	m.motion_tick.tv_sec = 0;
 	m.motion_tick.tv_nsec = 0;
 
-	release_keys(fd);
-	grab_keyboard(fd);
+
+	bool grabbing = false;
+	bool start_combo;
 	while(!quit) {
-		n = read(fd, &event, sizeof(event));
+		n = read(keyboard_fd, &event, sizeof(event));
 
 		if(n == (ssize_t)sizeof(event)) {
 			if(event.type == EV_KEY) {
-				if(event.code == K_EXIT) {
-					quit = 1;
-				}
 				m.key_states[event.code] = event.value;
+				start_combo = m.key_states[START_TOGGLE_1] && (START_TOGGLE_2 == -1 || m.key_states[START_TOGGLE_2]) && (START_TOGGLE_3 == -1 || m.key_states[START_TOGGLE_3]);
+
+				if(start_combo && !grabbing) {
+					grabbing = true;
+					release_keys(keyboard_fd);
+					grab_keyboard(keyboard_fd);
+				}
+
+				if(grabbing && event.code == K_EXIT) {
+					memset(m.key_states, 0, sizeof(int) * KEY_MAX);
+					grabbing = false;
+					release_keys(keyboard_fd);
+					ungrab_keyboard(keyboard_fd);
+				}
+
+				if(grabbing && event.code == K_END) {
+					quit = true;
+					ungrab_keyboard(keyboard_fd);
+				}
+
 			}
 		} else {
 			if (errno != EAGAIN && errno != EWOULDBLOCK) {
 				perror("Error reading event");
-				quit = 1;
+				quit = true;
 				break;
 			}
 		}
-		handle_mouse(&m);
+		if(grabbing) handle_mouse(&m);
 	}
-	ungrab_keyboard(fd);
-
 	libevdev_uinput_destroy(ui_mouse_dev);
 	close(uifd);
-	close(fd);
+	close(keyboard_fd);
 	return 0;
 }

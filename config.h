@@ -11,17 +11,6 @@
  * sudo make install
  */
 
-/*
- * Usage:
- * Either manually run 
- * mouse_move 
- * in the terminal,
- * or setup a shortcut for it
- *
- * example for i3:
- * bindsym $mod+space exec mouse_move
- */
-
 
 /*
  * Path to the keyboard input device.
@@ -46,7 +35,6 @@
 #define MAX_DEVICES 64
 #define KEY_STATE_MAX ((KEY_MAX + 7) / 8)
 
-
 /* 
  * Note that most probably the keyboard layout from the evdev device is qwerty.
  * If you have changed your layout, take that into account when setting this bindings.
@@ -63,9 +51,36 @@
  * Support for automatic layout detection may be coming soon...
  */
 
+/*
+ * Usage:
+ * Either manually run 
+ * mouse_move 
+ * in the terminal,
+ * or setup a shortcut for it
+ *
+ * example for i3:
+ * bindsym $mod+space exec mouse_move
+ *
+ *
+ * Once the program is running, press the START_TOGGLE key combo to grab the keyboard
+ * while grabbing the keyboard you can move the mouse
+ * to stop grabbing the keyboard press the EKIT key
+ * to completely kill the program press the END key while grabbing the keyboard.
+ */
+
+/*
+ * The START_TOGGLE_1 must always be a key
+ * if you want to just use that one key to start grabbing the keyboard,
+ * set 2 and 3 to -1
+ * if not you can activate each one by just assigning the keys you'd like for your combo
+ */
+
+
 #define START_TOGGLE_1	KEY_T
 #define START_TOGGLE_2	KEY_LEFTMETA
 #define START_TOGGLE_3	-1
+
+#define K_END		KEY_B
 
 #define M_CTRL		KEY_LEFTCTRL
 #define M_SHIFT		KEY_LEFTSHIFT
