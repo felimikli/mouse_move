@@ -1,3 +1,17 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <unistd.h>
+#include <time.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <libudev.h>
+#include <libevdev/libevdev.h>
+#include <libevdev/libevdev-uinput.h>
+#include <sys/ioctl.h>
+#include <linux/input.h>
+
 #include "config.h"
 
 typedef struct {

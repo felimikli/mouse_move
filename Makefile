@@ -4,7 +4,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -O2
 LIBS = -levdev
 SRC = mouse_move.c
-BIN = exec
+BIN = mouse_move
 
 .PHONY: all clean install setcap
 

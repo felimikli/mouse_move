@@ -1,18 +1,27 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <string.h>
-#include <unistd.h>
-#include <time.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <libudev.h>
-#include <libevdev/libevdev.h>
-#include <libevdev/libevdev-uinput.h>
-#include <sys/ioctl.h>
-#include <linux/input.h>
+/*
+ * IMPORTANT:
+ * this program uses sudo and root access to read keyboard devices
+ * this is bad and insecure so read the source code and use it at your own risk
+ */
 
-// config.h
+/*
+ * Install:
+ * Clone the repository or just download the files
+ * Edit the config.h file to your liking.
+ * sudo make install
+ */
+
+/*
+ * Usage:
+ * Either manually run 
+ * mouse_move 
+ * in the terminal,
+ * or setup a shortcut for it
+ *
+ * example for i3:
+ * bindsym $mod+space exec mouse_move
+ */
+
 
 /*
  * Path to the keyboard input device.
@@ -32,7 +41,6 @@
  * If you leave this as an empty string (""), the program will try to auto-detect
  * a keyboard using libevdev by scanning devices in /dev/input.
  */
-
 #define KEYBOARD_DEVICE ""
 
 #define MAX_DEVICES 64
@@ -55,6 +63,9 @@
  * Support for automatic layout detection may be coming soon...
  */
 
+#define START_TOGGLE_1	KEY_T
+#define START_TOGGLE_2	KEY_LEFTMETA
+#define START_TOGGLE_3	-1
 
 #define M_CTRL		KEY_LEFTCTRL
 #define M_SHIFT		KEY_LEFTSHIFT
