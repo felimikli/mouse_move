@@ -1,0 +1,99 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <unistd.h>
+#include <time.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <libudev.h>
+#include <libevdev/libevdev.h>
+#include <libevdev/libevdev-uinput.h>
+#include <sys/ioctl.h>
+#include <linux/input.h>
+
+// config.h
+
+/*
+ * Path to the keyboard input device.
+ *
+ * You can set this manually by finding your keyboard:
+ *
+ *   - Run: ls /dev/input/by-id/
+ *     Look for a device like: usb-Logitech_USB_Keyboard-event-kbd
+ *     Then set:
+ *       #define KEYBOARD_DEVICE "/dev/input/by-id/usb-Logitech_USB_Keyboard-event-kbd"
+ *
+ *   - Or run: cat /proc/bus/input/devices
+ *     Look for a keyboard with EV=120013 (or similar) and note the "eventX".
+ *     Then set:
+ *       #define KEYBOARD_DEVICE "/dev/input/eventX"
+ *
+ * If you leave this as an empty string (""), the program will try to auto-detect
+ * a keyboard using libevdev by scanning devices in /dev/input.
+ */
+
+#define KEYBOARD_DEVICE ""
+
+#define MAX_DEVICES 64
+#define KEY_STATE_MAX ((KEY_MAX + 7) / 8)
+
+
+/* 
+ * Note that most probably the keyboard layout from the evdev device is qwerty.
+ * If you have changed your layout, take that into account when setting this bindings.
+ *
+ * Example:
+ *	If you want to click with T, but you changed your layout to dvorak,
+ *	you should set:
+ *		K_BTN_LEFT KEY_K
+ *	because T in dvorak is in the position of K in qwerty
+ *
+ * Alternatively mess around with the bindings until you find the setup you want :)
+ *	
+ *
+ * Support for automatic layout detection may be coming soon...
+ */
+
+
+#define M_CTRL		KEY_LEFTCTRL
+#define M_SHIFT		KEY_LEFTSHIFT
+#define M_ALT		KEY_LEFTALT
+
+#define K_EXIT		KEY_SPACE
+
+#define K_UP		KEY_V
+#define K_DOWN		KEY_C
+#define K_LEFT		KEY_J
+#define K_RIGHT		KEY_P
+
+#define K_BUTTON_LEFT	KEY_K
+#define K_BUTTON_MIDDLE	KEY_I
+#define K_BUTTON_RIGHT	KEY_L
+
+#define K_SCROLL_UP	KEY_F
+#define K_SCROLL_DOWN	KEY_H
+
+#define K_SCROLL_LEFT	KEY_N
+#define K_SCROLL_RIGHT	KEY_COMMA
+
+
+#define SLOWER_MOD	M_CTRL
+#define SLOW_MOD	M_SHIFT
+#define FAST_MOD	M_ALT
+
+
+// speed in pixels per second
+#define SPEED_SLOWER	100
+#define SPEED_SLOW	300
+#define SPEED_NORMAL	800
+#define SPEED_FAST	1000
+
+
+#define CLICK_DELAY_MS	10
+#define SCROLL_DELAY_MS	20
+#define MOTION_DELAY_MS	10 // less is smoother, anything less than 3 will result in no motion.
+
+#define CLICK_DELAY_NS  (CLICK_DELAY_MS * 1000000)
+#define SCROLL_DELAY_NS (SCROLL_DELAY_MS * 1000000)
+#define MOTION_DELAY_NS (MOTION_DELAY_MS * 1000000)
