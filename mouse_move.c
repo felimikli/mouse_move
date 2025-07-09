@@ -6,6 +6,7 @@
 #include <time.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <poll.h>
 #include <libudev.h>
 #include <libevdev/libevdev.h>
 #include <libevdev/libevdev-uinput.h>
@@ -14,6 +15,17 @@
 
 #include "config.h"
 
+#define KEY_STATE_MAX ((KEY_MAX + 7) / 8)
+
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
+#define CLICK_DELAY_NS  (CLICK_DELAY_MS * 1000000)
+#define SCROLL_DELAY_NS (SCROLL_DELAY_MS * 1000000)
+#define MOTION_DELAY_NS (MOTION_DELAY_MS * 1000000)
+
+#define POLL_DELAY_MS MIN(MIN(CLICK_DELAY_MS, SCROLL_DELAY_MS), MOTION_DELAY_MS)
+
+
 typedef struct {
 	struct libevdev_uinput* uidev;
 	int* key_states;
@@ -21,14 +33,15 @@ typedef struct {
 	struct timespec click_tick;
 	struct timespec scroll_tick;
 	struct timespec motion_tick;
-
 	bool button_left_pressed;
 	bool button_middle_pressed;
 	bool button_right_pressed;
 } Mouse;
 
 uint64_t time_diff_ns_abs(struct timespec* x, struct timespec* y) {
-	return llabs((x->tv_sec - y->tv_sec)*1e9 + (x->tv_nsec - y->tv_nsec));
+	uint64_t nx = (uint64_t)x->tv_sec * 1000000000ULL + x->tv_nsec;
+	uint64_t ny = (uint64_t)y->tv_sec * 1000000000ULL + y->tv_nsec;
+	return nx > ny ? nx - ny : ny - nx;
 }
 
 void handle_motion(Mouse* m) {
@@ -45,8 +58,9 @@ void handle_motion(Mouse* m) {
 	if(m->key_states[SLOW_MOD]) m->speed = SPEED_SLOW;
 	if(m->key_states[SLOWER_MOD]) m->speed = SPEED_SLOWER;
 
-	int x_pixels = x * (int)( ((float)m->speed) * (MOTION_DELAY_NS / 1e9) );
-	int y_pixels = y * (int)( ((float)m->speed) * (MOTION_DELAY_NS / 1e9) );
+	float motion_factor = m->speed * (MOTION_DELAY_NS / 1e9f);
+	int x_pixels = (int) ( x * motion_factor );
+	int y_pixels = (int) ( y * motion_factor );
 
 	libevdev_uinput_write_event(m->uidev, EV_REL, REL_X, x_pixels);
 	libevdev_uinput_write_event(m->uidev, EV_REL, REL_Y, y_pixels);
@@ -102,11 +116,17 @@ void handle_mouse(Mouse* m) {
 }
 
 
-int create_uinput_mouse_dev(int uifd, struct libevdev_uinput** ui_mouse_dev) {
+struct libevdev_uinput* create_uinput_mouse_dev(int uifd) {
+	struct libevdev_uinput* ui_mouse_dev;
 	struct libevdev* mouse_dev;
 	int err;
+
 	mouse_dev = libevdev_new();
-	libevdev_set_name(mouse_dev, "test device");
+	if(mouse_dev == NULL) {
+		perror("Error creating virtual mouse device");
+		return NULL;
+	}
+	libevdev_set_name(mouse_dev, "virtual mouse");
 	libevdev_enable_event_type(mouse_dev, EV_REL);
 	libevdev_enable_event_code(mouse_dev, EV_REL, REL_X, NULL);
 	libevdev_enable_event_code(mouse_dev, EV_REL, REL_Y, NULL);
@@ -117,9 +137,14 @@ int create_uinput_mouse_dev(int uifd, struct libevdev_uinput** ui_mouse_dev) {
 	libevdev_enable_event_code(mouse_dev, EV_KEY, BTN_LEFT, NULL);
 	libevdev_enable_event_code(mouse_dev, EV_KEY, BTN_MIDDLE, NULL);
 	libevdev_enable_event_code(mouse_dev, EV_KEY, BTN_RIGHT, NULL);
-	err = libevdev_uinput_create_from_device(mouse_dev, uifd, ui_mouse_dev);
+
+	err = libevdev_uinput_create_from_device(mouse_dev, uifd, &ui_mouse_dev);
+	if(err != 0) {
+		perror("Error creating uinput mouse device");
+		return NULL;
+	}
 	libevdev_free(mouse_dev);
-	return err;
+	return ui_mouse_dev;
 }
 
 int find_keyboard_device_path(char* buff, size_t size) {
@@ -198,41 +223,53 @@ int check_keyboard_device_path(char* buff) {
 }
 
 
-void grab_keyboard(int fd) {
-	if(ioctl(fd, EVIOCGRAB, 1) < 0) {
+int grab_keyboard(int fd) {
+	int err = ioctl(fd, EVIOCGRAB, 1);
+	if(err < 0) {
 		perror("Failed to grab input device");
-		close(fd);
-		return;
 	}
+	return err;
 }
 
 void ungrab_keyboard(int fd) {
-	ioctl(fd, EVIOCGRAB, 0);
+	int err = ioctl(fd, EVIOCGRAB, 0);
+	if(err < 0) {
+		perror("Failed to ungrab input device");
+	}
+	return err;
 }
 
 
-void release_keys(int fd) {
+bool are_keys_released(int fd) {
 	uint8_t keys[KEY_STATE_MAX];
-	memset(keys, 0, sizeof(keys));
-
-	bool any_press = true;
-	while(any_press == true) {
-		ioctl(fd, EVIOCGKEY(sizeof(keys)), keys);
-		any_press = false;
-		for(int i = 0; i < KEY_STATE_MAX; i++) {
-			if(keys[i]) {
-				any_press = true;
-				break;
-			}
+	if(ioctl(fd, EVIOCGKEY(sizeof(keys)), keys) < 0) {
+		perror("EVIOCGKEY failed");
+		return false;
+	}
+	for(int i = 0; i < KEY_STATE_MAX; i++) {
+		if(keys[i]) {
+			return false;
 		}
 	}
+	return true;
+}
+
+
+bool key_combo(int* key_states, int* keys, size_t n) {
+	if(!key_states[keys[0]]) return false; // first key is required
+	// rest are optional, check only if != -1
+	for(size_t i = 1; i < n; i++) {
+		if(keys[i] != -1 && !key_states[keys[i]]) { // if key is NOT -1 AND the key is not pressed
+			return false;
+		}
+	}
+	return true;
 }
 
 int main() {
 	int err;
 	int keyboard_fd;
-	int uifd;
-
+	int uifd_mouse;
 	struct libevdev_uinput* ui_mouse_dev;
 
 	char keyboard_path[64];
@@ -241,7 +278,28 @@ int main() {
 	bool quit = false;
 	ssize_t n;
 
-	int key_states_zero[KEY_MAX] = {0};
+	Mouse m;
+	m.key_states = calloc(KEY_MAX + 1, sizeof(int));
+	m.speed = SPEED_NORMAL;
+	m.click_tick.tv_sec = 0;
+	m.click_tick.tv_nsec = 0;
+	m.scroll_tick.tv_sec = 0;
+	m.scroll_tick.tv_nsec = 0;
+	m.motion_tick.tv_sec = 0;
+	m.motion_tick.tv_nsec = 0;
+	m.button_left_pressed = false;
+	m.button_middle_pressed = false;
+	m.button_right_pressed = false;
+
+	bool grabbing = false;
+
+	bool start_combo;
+	int start_combo_keys[] = { START_TOGGLE_1, START_TOGGLE_2, START_TOGGLE_3 };
+	int start_combo_keys_size = sizeof(start_combo_keys) / sizeof(start_combo_keys[0]);
+
+	struct pollfd fds[1];
+	fds[0].events = POLLIN;
+	int poll_ret;
 
 
 	if(strlen(KEYBOARD_DEVICE) >= sizeof keyboard_path) {
@@ -252,6 +310,7 @@ int main() {
 		strncpy(keyboard_path, KEYBOARD_DEVICE, sizeof(keyboard_path) - 1);
 		keyboard_path[sizeof(keyboard_path) - 1] = '\0';
 	}
+
 	if(keyboard_path[0] == '\0') {
 		err = find_keyboard_device_path(keyboard_path, sizeof keyboard_path);
 		if(err != 0){
@@ -272,67 +331,79 @@ int main() {
 		perror("Error opening input device");
 		return 1;
 	}
+	fds[0].fd = keyboard_fd;
 
-	uifd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-
-	err = create_uinput_mouse_dev(uifd, &ui_mouse_dev);
-	if(err != 0) {
+	uifd_mouse = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+	ui_mouse_dev = create_uinput_mouse_dev(uifd_mouse);
+	if(ui_mouse_dev == NULL) {
 		perror("Error creating mouse device");
 		return 1;
 	}
-
-	Mouse m;
 	m.uidev = ui_mouse_dev;
-	m.key_states = key_states_zero;
-	m.speed = SPEED_NORMAL;
-	m.click_tick.tv_sec = 0;
-	m.click_tick.tv_nsec = 0;
-	m.scroll_tick.tv_sec = 0;
-	m.scroll_tick.tv_nsec = 0;
-	m.motion_tick.tv_sec = 0;
-	m.motion_tick.tv_nsec = 0;
 
-
-	bool grabbing = false;
-	bool start_combo;
 	while(!quit) {
-		n = read(keyboard_fd, &event, sizeof(event));
+		poll_ret = poll(fds, 1, POLL_DELAY_MS);
+		if(poll_ret > 0) {
+			n = read(keyboard_fd, &event, sizeof(event));
 
-		if(n == (ssize_t)sizeof(event)) {
-			if(event.type == EV_KEY) {
-				m.key_states[event.code] = event.value;
-				start_combo = m.key_states[START_TOGGLE_1] && (START_TOGGLE_2 == -1 || m.key_states[START_TOGGLE_2]) && (START_TOGGLE_3 == -1 || m.key_states[START_TOGGLE_3]);
+			if(n == (ssize_t)sizeof(event)) {
+				if(event.type == EV_KEY) {
+					m.key_states[event.code] = event.value;
+					start_combo = key_combo(m.key_states, start_combo_keys, start_combo_keys_size);
 
-				if(start_combo && !grabbing) {
-					grabbing = true;
-					release_keys(keyboard_fd);
-					grab_keyboard(keyboard_fd);
+					if(start_combo && !grabbing) {
+						grabbing = true;
+						while(1) {
+							err = grab_keyboard(keyboard_fd);
+							if(err < 0) {
+								perror("error grabbing keyboard");
+								usleep(1000);
+								continue;
+							}
+							if(are_keys_released(keyboard_fd)) {
+								memset(m.key_states, 0, sizeof(int) * KEY_MAX);
+								break;
+							}
+							err = ungrab_keyboard(keyboard_fd);
+							if(err < 0) {
+								perror("error ungrabbing keyboard");
+								usleep(1000);
+								continue;
+							}
+							usleep(1000);
+						}
+					}
+
+					if(grabbing && event.code == K_EXIT) {
+						memset(m.key_states, 0, sizeof(int) * KEY_MAX);
+						grabbing = false;
+						ungrab_keyboard(keyboard_fd);
+					}
+
+					if(grabbing && event.code == K_END) {
+						quit = true;
+						ungrab_keyboard(keyboard_fd);
+					}
+
 				}
-
-				if(grabbing && event.code == K_EXIT) {
-					memset(m.key_states, 0, sizeof(int) * KEY_MAX);
-					grabbing = false;
-					release_keys(keyboard_fd);
-					ungrab_keyboard(keyboard_fd);
-				}
-
-				if(grabbing && event.code == K_END) {
+			} else {
+				if (errno != EAGAIN && errno != EWOULDBLOCK) {
+					perror("Error reading event");
 					quit = true;
-					ungrab_keyboard(keyboard_fd);
+					break;
 				}
-
 			}
-		} else {
-			if (errno != EAGAIN && errno != EWOULDBLOCK) {
-				perror("Error reading event");
-				quit = true;
-				break;
-			}
+		}
+		else if(poll_ret < 0) {
+			perror("poll failed");
+			quit = true;
+			break;
 		}
 		if(grabbing) handle_mouse(&m);
 	}
 	libevdev_uinput_destroy(ui_mouse_dev);
-	close(uifd);
+	close(uifd_mouse);
 	close(keyboard_fd);
+	free(m.key_states);
 	return 0;
 }

@@ -33,7 +33,6 @@
 #define KEYBOARD_DEVICE ""
 
 #define MAX_DEVICES 64
-#define KEY_STATE_MAX ((KEY_MAX + 7) / 8)
 
 /* 
  * Note that most probably the keyboard layout from the evdev device is qwerty.
@@ -119,7 +118,3 @@
 #define CLICK_DELAY_MS	10
 #define SCROLL_DELAY_MS	20
 #define MOTION_DELAY_MS	10 // less is smoother, anything less than 3 will result in no motion.
-
-#define CLICK_DELAY_NS  (CLICK_DELAY_MS * 1000000)
-#define SCROLL_DELAY_NS (SCROLL_DELAY_MS * 1000000)
-#define MOTION_DELAY_NS (MOTION_DELAY_MS * 1000000)
