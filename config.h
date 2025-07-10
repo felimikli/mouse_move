@@ -73,13 +73,11 @@
  * set 2 and 3 to -1
  * if not you can activate each one by just assigning the keys you'd like for your combo
  */
-
-
-#define START_TOGGLE_1	KEY_T
+#define START_TOGGLE_1	KEY_TAB
 #define START_TOGGLE_2	KEY_LEFTMETA
 #define START_TOGGLE_3	-1
 
-#define K_END		KEY_B
+#define K_END		KEY_X
 
 #define M_CTRL		KEY_LEFTCTRL
 #define M_SHIFT		KEY_LEFTSHIFT
@@ -87,20 +85,20 @@
 
 #define K_EXIT		KEY_SPACE
 
-#define K_UP		KEY_V
-#define K_DOWN		KEY_C
-#define K_LEFT		KEY_J
-#define K_RIGHT		KEY_P
+#define K_UP		KEY_K
+#define K_DOWN		KEY_J
+#define K_LEFT		KEY_H
+#define K_RIGHT		KEY_L
 
-#define K_BUTTON_LEFT	KEY_K
-#define K_BUTTON_MIDDLE	KEY_I
-#define K_BUTTON_RIGHT	KEY_L
+#define K_BUTTON_LEFT	KEY_S
+#define K_BUTTON_MIDDLE	KEY_D
+#define K_BUTTON_RIGHT	KEY_F
 
-#define K_SCROLL_UP	KEY_F
-#define K_SCROLL_DOWN	KEY_H
+#define K_SCROLL_UP	KEY_U
+#define K_SCROLL_DOWN	KEY_D
 
-#define K_SCROLL_LEFT	KEY_N
-#define K_SCROLL_RIGHT	KEY_COMMA
+#define K_SCROLL_LEFT	KEY_B
+#define K_SCROLL_RIGHT	KEY_W
 
 
 #define SLOWER_MOD	M_CTRL
@@ -110,9 +108,9 @@
 
 // motion speed in pixels per second
 #define SPEED_SLOWER	100
-#define SPEED_SLOW	300
+#define SPEED_SLOW	400
 #define SPEED_NORMAL	800
-#define SPEED_FAST	1000
+#define SPEED_FAST	1200
 
 // scroll speed in detents per second
 #define SCROLL_SPEED_SLOWER	8
