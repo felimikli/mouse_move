@@ -25,6 +25,9 @@
 
 #define POLL_DELAY_MS MIN(MIN(CLICK_DELAY_MS, SCROLL_DELAY_MS), MOTION_DELAY_MS)
 
+static const int START_COMBO_KEYS[] = { START_TOGGLE_1, START_TOGGLE_2, START_TOGGLE_3 };
+static const size_t START_COMBO_KEYS_SIZE = sizeof(START_COMBO_KEYS) / sizeof(START_COMBO_KEYS[0]);
+
 
 typedef struct {
 	struct libevdev_uinput* uidev;
@@ -141,13 +144,14 @@ struct libevdev_uinput* create_uinput_mouse_dev(int uifd) {
 	err = libevdev_uinput_create_from_device(mouse_dev, uifd, &ui_mouse_dev);
 	if(err != 0) {
 		perror("Error creating uinput mouse device");
+		libevdev_free(mouse_dev);
 		return NULL;
 	}
 	libevdev_free(mouse_dev);
 	return ui_mouse_dev;
 }
 
-int find_keyboard_device_path(char* buff, size_t size) {
+int guess_keyboard_device_path(char* buff, size_t size) {
 	int fd;
 	int rc;
 	struct libevdev* dev = NULL;
@@ -165,7 +169,6 @@ int find_keyboard_device_path(char* buff, size_t size) {
 				fprintf(stderr, "Permission denied opening %s, skipping\n", buff);
 				continue;
 			}
-			// Unexpected error: stop scanning
 			perror("Error opening device");
 			break;
 		}
@@ -176,6 +179,7 @@ int find_keyboard_device_path(char* buff, size_t size) {
 			return 1;
 		}
 		if(libevdev_has_event_code(dev, EV_KEY, KEY_A) && libevdev_has_event_type(dev, EV_KEY) && libevdev_has_event_type(dev, EV_REP)) {
+			// device is keyboard
 			libevdev_free(dev);
 			close(fd);
 			return 0;
@@ -231,7 +235,7 @@ int grab_keyboard(int fd) {
 	return err;
 }
 
-void ungrab_keyboard(int fd) {
+int ungrab_keyboard(int fd) {
 	int err = ioctl(fd, EVIOCGRAB, 0);
 	if(err < 0) {
 		perror("Failed to ungrab input device");
@@ -255,7 +259,7 @@ bool are_keys_released(int fd) {
 }
 
 
-bool key_combo(int* key_states, int* keys, size_t n) {
+bool key_combo_pressed(int* key_states, const int* keys, size_t n) {
 	if(!key_states[keys[0]]) return false; // first key is required
 	// rest are optional, check only if != -1
 	for(size_t i = 1; i < n; i++) {
@@ -266,53 +270,72 @@ bool key_combo(int* key_states, int* keys, size_t n) {
 	return true;
 }
 
-int main() {
+void wait_grab_until_release(int keyboard_fd) {
 	int err;
-	int keyboard_fd;
-	int uifd_mouse;
-	struct libevdev_uinput* ui_mouse_dev;
+	while(1) {
+		err = grab_keyboard(keyboard_fd);
+		if(err < 0) {
+			perror("error grabbing keyboard");
+			usleep(1000);
+			continue;
+		}
+		if(are_keys_released(keyboard_fd)) {
+			break;
+		}
+		err = ungrab_keyboard(keyboard_fd);
+		if(err < 0) {
+			perror("error ungrabbing keyboard");
+			usleep(1000);
+			continue;
+		}
+		usleep(1000);
+	}
+}
 
-	char keyboard_path[64];
+void process_event(struct input_event* event, Mouse* m, bool* grabbing, bool* quit, int keyboard_fd) {
+	if(event->type != EV_KEY || event->code >= KEY_MAX) {
+		return;
+	}
 
-	struct input_event event;
-	bool quit = false;
-	ssize_t n;
+	int code = event->code;
+	int value = event->value;
 
-	Mouse m;
-	m.key_states = calloc(KEY_MAX + 1, sizeof(int));
-	m.speed = SPEED_NORMAL;
-	m.click_tick.tv_sec = 0;
-	m.click_tick.tv_nsec = 0;
-	m.scroll_tick.tv_sec = 0;
-	m.scroll_tick.tv_nsec = 0;
-	m.motion_tick.tv_sec = 0;
-	m.motion_tick.tv_nsec = 0;
-	m.button_left_pressed = false;
-	m.button_middle_pressed = false;
-	m.button_right_pressed = false;
+	m->key_states[code] = value;
 
-	bool grabbing = false;
+	bool start_combo = key_combo_pressed(m->key_states, START_COMBO_KEYS, START_COMBO_KEYS_SIZE);
 
-	bool start_combo;
-	int start_combo_keys[] = { START_TOGGLE_1, START_TOGGLE_2, START_TOGGLE_3 };
-	int start_combo_keys_size = sizeof(start_combo_keys) / sizeof(start_combo_keys[0]);
+	if(start_combo && !(*grabbing)) {
+		*grabbing = true;
+		wait_grab_until_release(keyboard_fd);
+		memset(m->key_states, 0, sizeof(int) * KEY_MAX);
+	}
 
-	struct pollfd fds[1];
-	fds[0].events = POLLIN;
-	int poll_ret;
+	if(*grabbing && code == K_EXIT) {
+		memset(m->key_states, 0, sizeof(int) * KEY_MAX);
+		*grabbing = false;
+		ungrab_keyboard(keyboard_fd);
+	}
 
+	if(*grabbing && code == K_END) {
+		*quit = true;
+		ungrab_keyboard(keyboard_fd);
+	}
+}
 
-	if(strlen(KEYBOARD_DEVICE) >= sizeof keyboard_path) {
+int init_keyboard_fd(char* keyboard_path, size_t size) {
+	int err;
+	if(strlen(KEYBOARD_DEVICE) >= size) {
 		fprintf(stderr, "keyboard device path provided is too long.\n");
 		keyboard_path[0] = '\0';
+		return 0;
 	}
 	else {
-		strncpy(keyboard_path, KEYBOARD_DEVICE, sizeof(keyboard_path) - 1);
-		keyboard_path[sizeof(keyboard_path) - 1] = '\0';
+		strncpy(keyboard_path, KEYBOARD_DEVICE, size);
+		keyboard_path[size - 1] = '\0';
 	}
 
 	if(keyboard_path[0] == '\0') {
-		err = find_keyboard_device_path(keyboard_path, sizeof keyboard_path);
+		err = guess_keyboard_device_path(keyboard_path, size);
 		if(err != 0){
 			fprintf(stderr, "Error guessing keyboard device, please provide device path in config.h\n");
 			return 1;
@@ -325,6 +348,65 @@ int main() {
 			return 1;
 		}
 	}
+	return 0;
+}
+
+int main() {
+	int err;
+	int keyboard_fd;
+	int uifd_mouse;
+	struct libevdev_uinput* ui_mouse_dev;
+	char keyboard_path[64];
+
+	Mouse m = {
+		.key_states = calloc(KEY_MAX + 1, sizeof(int)),
+		.speed = SPEED_NORMAL,
+		.click_tick.tv_sec = 0,
+		.click_tick.tv_nsec = 0,
+		.scroll_tick.tv_sec = 0,
+		.scroll_tick.tv_nsec = 0,
+		.motion_tick.tv_sec = 0,
+		.motion_tick.tv_nsec = 0,
+		.button_left_pressed = false,
+		.button_middle_pressed = false,
+		.button_right_pressed = false,
+	};
+
+	bool quit = false;
+	bool grabbing = false;
+
+	struct pollfd fds[1];
+	fds[0].events = POLLIN;
+	int poll_ret;
+
+	struct input_event event;
+	ssize_t n;
+
+	// if(strlen(KEYBOARD_DEVICE) >= sizeof keyboard_path) {
+		// fprintf(stderr, "keyboard device path provided is too long.\n");
+		// keyboard_path[0] = '\0';
+	// }
+	// else {
+		// strncpy(keyboard_path, KEYBOARD_DEVICE, sizeof(keyboard_path) - 1);
+		// keyboard_path[sizeof(keyboard_path) - 1] = '\0';
+	// }
+// 
+	// if(keyboard_path[0] == '\0') {
+		// err = guess_keyboard_device_path(keyboard_path, sizeof keyboard_path);
+		// if(err != 0){
+			// fprintf(stderr, "Error guessing keyboard device, please provide device path in config.h\n");
+			// return 1;
+		// }
+	// }
+	// else {
+		// err = check_keyboard_device_path(keyboard_path);
+		// if(err != 0){
+			// fprintf(stderr, "Incorrect path provided in config.h, make sure its a keyboard device path\n");
+			// return 1;
+		// }
+	// }
+	
+	if(init_keyboard_fd(keyboard_path, sizeof keyboard_path) != 0) return 1;
 
 	keyboard_fd = open(keyboard_path, O_RDONLY | O_NONBLOCK);
 	if(keyboard_fd < 0) {
@@ -334,6 +416,10 @@ int main() {
 	fds[0].fd = keyboard_fd;
 
 	uifd_mouse = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+	if(uifd_mouse < 0) {
+		perror("Failed to open /dev/uinput. Is the uinput module loaded?");
+		return 1;
+	}
 	ui_mouse_dev = create_uinput_mouse_dev(uifd_mouse);
 	if(ui_mouse_dev == NULL) {
 		perror("Error creating mouse device");
@@ -345,47 +431,10 @@ int main() {
 		poll_ret = poll(fds, 1, POLL_DELAY_MS);
 		if(poll_ret > 0) {
 			n = read(keyboard_fd, &event, sizeof(event));
-
 			if(n == (ssize_t)sizeof(event)) {
-				if(event.type == EV_KEY) {
-					m.key_states[event.code] = event.value;
-					start_combo = key_combo(m.key_states, start_combo_keys, start_combo_keys_size);
 
-					if(start_combo && !grabbing) {
-						grabbing = true;
-						while(1) {
-							err = grab_keyboard(keyboard_fd);
-							if(err < 0) {
-								perror("error grabbing keyboard");
-								usleep(1000);
-								continue;
-							}
-							if(are_keys_released(keyboard_fd)) {
-								memset(m.key_states, 0, sizeof(int) * KEY_MAX);
-								break;
-							}
-							err = ungrab_keyboard(keyboard_fd);
-							if(err < 0) {
-								perror("error ungrabbing keyboard");
-								usleep(1000);
-								continue;
-							}
-							usleep(1000);
-						}
-					}
+				process_event(&event, &m, &grabbing, &quit, keyboard_fd);
 
-					if(grabbing && event.code == K_EXIT) {
-						memset(m.key_states, 0, sizeof(int) * KEY_MAX);
-						grabbing = false;
-						ungrab_keyboard(keyboard_fd);
-					}
-
-					if(grabbing && event.code == K_END) {
-						quit = true;
-						ungrab_keyboard(keyboard_fd);
-					}
-
-				}
 			} else {
 				if (errno != EAGAIN && errno != EWOULDBLOCK) {
 					perror("Error reading event");
