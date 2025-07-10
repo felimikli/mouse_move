@@ -13,11 +13,11 @@
 #include <sys/ioctl.h>
 #include <linux/input.h>
 
-#include "config.h"
-
+#define MAX_DEVICE_PATH_SIZE 64
 #define KEY_STATE_MAX ((KEY_MAX + 7) / 8)
-
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+
+#include "config.h"
 
 #define CLICK_DELAY_NS  (CLICK_DELAY_MS * 1000000)
 #define SCROLL_DELAY_NS (SCROLL_DELAY_MS * 1000000)
@@ -27,7 +27,6 @@
 
 static const int START_COMBO_KEYS[] = { START_TOGGLE_1, START_TOGGLE_2, START_TOGGLE_3 };
 static const size_t START_COMBO_KEYS_SIZE = sizeof(START_COMBO_KEYS) / sizeof(START_COMBO_KEYS[0]);
-
 
 typedef struct {
 	struct libevdev_uinput* uidev;
@@ -41,10 +40,11 @@ typedef struct {
 	bool button_right_pressed;
 } Mouse;
 
-uint64_t time_diff_ns_abs(struct timespec* x, struct timespec* y) {
+uint64_t time_diff_ns(struct timespec* x, struct timespec* y) {
 	uint64_t nx = (uint64_t)x->tv_sec * 1000000000ULL + x->tv_nsec;
 	uint64_t ny = (uint64_t)y->tv_sec * 1000000000ULL + y->tv_nsec;
-	return nx > ny ? nx - ny : ny - nx;
+	if(ny > nx) return 0;
+	return nx - ny;
 }
 
 void handle_motion(Mouse* m) {
@@ -102,17 +102,17 @@ void handle_mouse(Mouse* m) {
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
 
-	if(time_diff_ns_abs(&now, &m->click_tick) > CLICK_DELAY_NS) {
+	if(time_diff_ns(&now, &m->click_tick) > CLICK_DELAY_NS) {
 		handle_click(m);
 		clock_gettime(CLOCK_MONOTONIC, &m->click_tick);
 	}
 
-	if(time_diff_ns_abs(&now, &m->scroll_tick) > SCROLL_DELAY_NS) {
+	if(time_diff_ns(&now, &m->scroll_tick) > SCROLL_DELAY_NS) {
 		handle_scroll(m);
 		clock_gettime(CLOCK_MONOTONIC, &m->scroll_tick);
 	}
 
-	if(time_diff_ns_abs(&now, &m->motion_tick) > MOTION_DELAY_NS) {
+	if(time_diff_ns(&now, &m->motion_tick) > MOTION_DELAY_NS) {
 		handle_motion(m);
 		clock_gettime(CLOCK_MONOTONIC, &m->motion_tick);
 	}
@@ -296,163 +296,160 @@ void process_event(struct input_event* event, Mouse* m, bool* grabbing, bool* qu
 	if(event->type != EV_KEY || event->code >= KEY_MAX) {
 		return;
 	}
-
 	int code = event->code;
 	int value = event->value;
 
 	m->key_states[code] = value;
 
-	bool start_combo = key_combo_pressed(m->key_states, START_COMBO_KEYS, START_COMBO_KEYS_SIZE);
+	bool start_combo_triggered = key_combo_pressed(m->key_states, START_COMBO_KEYS, START_COMBO_KEYS_SIZE);
 
-	if(start_combo && !(*grabbing)) {
+	if(!(*grabbing) && start_combo_triggered) {
 		*grabbing = true;
 		wait_grab_until_release(keyboard_fd);
 		memset(m->key_states, 0, sizeof(int) * KEY_MAX);
 	}
 
-	if(*grabbing && code == K_EXIT) {
-		memset(m->key_states, 0, sizeof(int) * KEY_MAX);
-		*grabbing = false;
-		ungrab_keyboard(keyboard_fd);
-	}
-
-	if(*grabbing && code == K_END) {
-		*quit = true;
-		ungrab_keyboard(keyboard_fd);
+	if(*grabbing) {
+		if(code == K_EXIT) {
+			memset(m->key_states, 0, sizeof(int) * KEY_MAX);
+			*grabbing = false;
+			ungrab_keyboard(keyboard_fd);
+		}
+		else if(code == K_END) {
+			*quit = true;
+			ungrab_keyboard(keyboard_fd);
+		}
 	}
 }
 
 int init_keyboard_fd(char* keyboard_path, size_t size) {
 	int err;
+	bool path_provided = (KEYBOARD_DEVICE[0] != '\0');
+
 	if(strlen(KEYBOARD_DEVICE) >= size) {
 		fprintf(stderr, "keyboard device path provided is too long.\n");
 		keyboard_path[0] = '\0';
-		return 0;
-	}
-	else {
-		strncpy(keyboard_path, KEYBOARD_DEVICE, size);
-		keyboard_path[size - 1] = '\0';
+		return 1;
 	}
 
-	if(keyboard_path[0] == '\0') {
-		err = guess_keyboard_device_path(keyboard_path, size);
-		if(err != 0){
-			fprintf(stderr, "Error guessing keyboard device, please provide device path in config.h\n");
-			return 1;
-		}
-	}
-	else {
+	if(path_provided) {
+		strncpy(keyboard_path, KEYBOARD_DEVICE, size);
+		keyboard_path[size - 1] = '\0';
 		err = check_keyboard_device_path(keyboard_path);
 		if(err != 0){
 			fprintf(stderr, "Incorrect path provided in config.h, make sure its a keyboard device path\n");
 			return 1;
 		}
 	}
+	else {
+		err = guess_keyboard_device_path(keyboard_path, size);
+		if(err != 0){
+			fprintf(stderr, "Error guessing keyboard device, please provide device path in config.h\n");
+			return 1;
+		}
+	}
 	return 0;
 }
 
-int main() {
-	int err;
-	int keyboard_fd;
-	int uifd_mouse;
-	struct libevdev_uinput* ui_mouse_dev;
-	char keyboard_path[64];
+int init_mouse(Mouse* m, int uifd) {
+	m->key_states = calloc(KEY_MAX + 1, sizeof(int));
+	if(m->key_states == NULL) {
+		perror("error allocating key_states array");
+		return 1;
+	}
+	m->speed = SPEED_NORMAL;
 
-	Mouse m = {
-		.key_states = calloc(KEY_MAX + 1, sizeof(int)),
-		.speed = SPEED_NORMAL,
-		.click_tick.tv_sec = 0,
-		.click_tick.tv_nsec = 0,
-		.scroll_tick.tv_sec = 0,
-		.scroll_tick.tv_nsec = 0,
-		.motion_tick.tv_sec = 0,
-		.motion_tick.tv_nsec = 0,
-		.button_left_pressed = false,
-		.button_middle_pressed = false,
-		.button_right_pressed = false,
-	};
+	m->click_tick = (struct timespec){0};
+	m->scroll_tick = (struct timespec){0};
+	m->motion_tick = (struct timespec){0};
 
+	m->button_left_pressed = false;
+	m->button_middle_pressed = false;
+	m->button_right_pressed = false;
+
+	m->uidev = create_uinput_mouse_dev(uifd);
+	if(m->uidev == NULL) {
+		perror("Error creating mouse device");
+		free(m->key_states);
+		return 1;
+	}
+	return 0;
+}
+
+void destroy_mouse(Mouse* m) {
+	libevdev_uinput_destroy(m->uidev);
+	free(m->key_states);
+}
+
+void event_loop(int keyboard_fd, Mouse* mouse) {
 	bool quit = false;
 	bool grabbing = false;
 
 	struct pollfd fds[1];
 	fds[0].events = POLLIN;
-	int poll_ret;
+	fds[0].fd = keyboard_fd;
+	int poll_result;
 
 	struct input_event event;
-	ssize_t n;
+	ssize_t bytes_read;
 
-	// if(strlen(KEYBOARD_DEVICE) >= sizeof keyboard_path) {
-		// fprintf(stderr, "keyboard device path provided is too long.\n");
-		// keyboard_path[0] = '\0';
-	// }
-	// else {
-		// strncpy(keyboard_path, KEYBOARD_DEVICE, sizeof(keyboard_path) - 1);
-		// keyboard_path[sizeof(keyboard_path) - 1] = '\0';
-	// }
-// 
-	// if(keyboard_path[0] == '\0') {
-		// err = guess_keyboard_device_path(keyboard_path, sizeof keyboard_path);
-		// if(err != 0){
-			// fprintf(stderr, "Error guessing keyboard device, please provide device path in config.h\n");
-			// return 1;
-		// }
-	// }
-	// else {
-		// err = check_keyboard_device_path(keyboard_path);
-		// if(err != 0){
-			// fprintf(stderr, "Incorrect path provided in config.h, make sure its a keyboard device path\n");
-			// return 1;
-		// }
-	// }
+	while(!quit) {
+		poll_result = poll(fds, 1, POLL_DELAY_MS);
+		if(poll_result > 0) {
+			bytes_read = read(keyboard_fd, &event, sizeof(event));
+			if(bytes_read == (ssize_t)sizeof(event)) {
+				process_event(&event, mouse, &grabbing, &quit, keyboard_fd);
+			} 
+			else if(errno != EAGAIN && errno != EWOULDBLOCK) {
+					perror("Error reading event");
+					quit = true;
+					break;
+			}
+		}
+		else if(poll_result < 0) {
+			perror("poll failed");
+			quit = true;
+			break;
+		}
+		if(grabbing) {
+			handle_mouse(mouse);
+		}
+	}
+}
+
+
+int main() {
+	int keyboard_fd;
+	int mouse_uifd;
+	char keyboard_path[MAX_DEVICE_PATH_SIZE];
+	Mouse mouse;
 	
-	if(init_keyboard_fd(keyboard_path, sizeof keyboard_path) != 0) return 1;
+	if(init_keyboard_fd(keyboard_path, sizeof keyboard_path) != 0){
+		return 1;
+	}
 
 	keyboard_fd = open(keyboard_path, O_RDONLY | O_NONBLOCK);
 	if(keyboard_fd < 0) {
 		perror("Error opening input device");
 		return 1;
 	}
-	fds[0].fd = keyboard_fd;
-
-	uifd_mouse = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-	if(uifd_mouse < 0) {
+	
+	mouse_uifd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+	if(mouse_uifd < 0) {
 		perror("Failed to open /dev/uinput. Is the uinput module loaded?");
+		close(keyboard_fd);
 		return 1;
 	}
-	ui_mouse_dev = create_uinput_mouse_dev(uifd_mouse);
-	if(ui_mouse_dev == NULL) {
-		perror("Error creating mouse device");
+	if(init_mouse(&mouse, mouse_uifd) != 0) {
+		close(mouse_uifd);
+		close(keyboard_fd);
 		return 1;
 	}
-	m.uidev = ui_mouse_dev;
 
-	while(!quit) {
-		poll_ret = poll(fds, 1, POLL_DELAY_MS);
-		if(poll_ret > 0) {
-			n = read(keyboard_fd, &event, sizeof(event));
-			if(n == (ssize_t)sizeof(event)) {
-
-				process_event(&event, &m, &grabbing, &quit, keyboard_fd);
-
-			} else {
-				if (errno != EAGAIN && errno != EWOULDBLOCK) {
-					perror("Error reading event");
-					quit = true;
-					break;
-				}
-			}
-		}
-		else if(poll_ret < 0) {
-			perror("poll failed");
-			quit = true;
-			break;
-		}
-		if(grabbing) handle_mouse(&m);
-	}
-	libevdev_uinput_destroy(ui_mouse_dev);
-	close(uifd_mouse);
+	event_loop(keyboard_fd, &mouse);
+	
+	destroy_mouse(&mouse);
+	close(mouse_uifd);
 	close(keyboard_fd);
-	free(m.key_states);
 	return 0;
 }
