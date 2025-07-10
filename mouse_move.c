@@ -32,6 +32,9 @@ typedef struct {
 	struct libevdev_uinput* uidev;
 	int* key_states;
 	int speed;
+	int scroll_speed;
+	float scroll_fraction_x;
+	float scroll_fraction_y;
 	struct timespec click_tick;
 	struct timespec scroll_tick;
 	struct timespec motion_tick;
@@ -40,14 +43,14 @@ typedef struct {
 	bool button_right_pressed;
 } Mouse;
 
-uint64_t time_diff_ns(struct timespec* x, struct timespec* y) {
+static uint64_t time_diff_ns(struct timespec* x, struct timespec* y) {
 	uint64_t nx = (uint64_t)x->tv_sec * 1000000000ULL + x->tv_nsec;
 	uint64_t ny = (uint64_t)y->tv_sec * 1000000000ULL + y->tv_nsec;
 	if(ny > nx) return 0;
 	return nx - ny;
 }
 
-void handle_motion(Mouse* m) {
+static void handle_motion(Mouse* m) {
 	int x = 0;
 	int y = 0;
 	if(m->key_states[K_UP]) y--;
@@ -61,7 +64,8 @@ void handle_motion(Mouse* m) {
 	if(m->key_states[SLOW_MOD]) m->speed = SPEED_SLOW;
 	if(m->key_states[SLOWER_MOD]) m->speed = SPEED_SLOWER;
 
-	float motion_factor = m->speed * (MOTION_DELAY_NS / 1e9f);
+	// speed per second
+	float motion_factor = m->speed * (MOTION_DELAY_MS / 1e3f);
 	int x_pixels = (int) ( x * motion_factor );
 	int y_pixels = (int) ( y * motion_factor );
 
@@ -70,7 +74,7 @@ void handle_motion(Mouse* m) {
 	libevdev_uinput_write_event(m->uidev, EV_SYN, SYN_REPORT, 0);
 }
 
-void handle_scroll(Mouse* m) {
+static void handle_scroll(Mouse* m) {
 	int x = 0;
 	int y = 0;
 	if(m->key_states[K_SCROLL_UP]) y++;
@@ -79,26 +83,46 @@ void handle_scroll(Mouse* m) {
 	if(m->key_states[K_SCROLL_RIGHT]) x++;
 	if(x == 0 && y == 0) return;
 
-	libevdev_uinput_write_event(m->uidev, EV_REL, REL_WHEEL, y);
-	libevdev_uinput_write_event(m->uidev, EV_REL, REL_HWHEEL, x);
+	m->scroll_speed = SCROLL_SPEED_NORMAL;
+	if(m->key_states[FAST_MOD]) m->scroll_speed = SCROLL_SPEED_FAST;
+	if(m->key_states[SLOW_MOD]) m->scroll_speed = SCROLL_SPEED_SLOW;
+	if(m->key_states[SLOWER_MOD]) m->scroll_speed = SCROLL_SPEED_SLOWER;
+
+	// scroll speed per second
+	float scroll_factor = m->scroll_speed * (SCROLL_DELAY_MS / 1e3f);
+
+	// store small scroll deltas, scroll if 1 is reached
+	m->scroll_fraction_x += x * scroll_factor;
+	m->scroll_fraction_y += y * scroll_factor;
+	int x_scroll = (int) m->scroll_fraction_x;
+	int y_scroll = (int) m->scroll_fraction_y;
+	m->scroll_fraction_x -= x_scroll;
+	m->scroll_fraction_y -= y_scroll;
+
+	if(x_scroll != 0) {
+		libevdev_uinput_write_event(m->uidev, EV_REL, REL_HWHEEL, x_scroll);
+	}
+	if(y_scroll != 0) {
+		libevdev_uinput_write_event(m->uidev, EV_REL, REL_WHEEL, y_scroll);
+	}
 	libevdev_uinput_write_event(m->uidev, EV_SYN, SYN_REPORT, 0);
 }
 
-void update_button(struct libevdev_uinput* uidev, bool is_pressed, bool* pressed_flag, int ui_btn) {
+static void update_button(struct libevdev_uinput* uidev, bool is_pressed, bool* pressed_flag, int ui_btn) {
 	if(is_pressed != *pressed_flag) {
 			*pressed_flag = is_pressed;
 			libevdev_uinput_write_event(uidev, EV_KEY, ui_btn, is_pressed);
-			libevdev_uinput_write_event(uidev, EV_SYN, SYN_REPORT, 0);
 	}
 }
-void handle_click(Mouse* m) {
+static void handle_click(Mouse* m) {
 	update_button(m->uidev, (bool) m->key_states[K_BUTTON_LEFT], &m->button_left_pressed, BTN_LEFT);
 	update_button(m->uidev, (bool) m->key_states[K_BUTTON_MIDDLE], &m->button_middle_pressed, BTN_MIDDLE);
 	update_button(m->uidev, (bool) m->key_states[K_BUTTON_RIGHT], &m->button_right_pressed, BTN_RIGHT);
+	libevdev_uinput_write_event(m->uidev, EV_SYN, SYN_REPORT, 0);
 }
 
 
-void handle_mouse(Mouse* m) {
+static void handle_mouse(Mouse* m) {
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
 
@@ -119,7 +143,7 @@ void handle_mouse(Mouse* m) {
 }
 
 
-struct libevdev_uinput* create_uinput_mouse_dev(int uifd) {
+static struct libevdev_uinput* create_uinput_mouse_dev(int uifd) {
 	struct libevdev_uinput* ui_mouse_dev;
 	struct libevdev* mouse_dev;
 	int err;
@@ -151,7 +175,7 @@ struct libevdev_uinput* create_uinput_mouse_dev(int uifd) {
 	return ui_mouse_dev;
 }
 
-int guess_keyboard_device_path(char* buff, size_t size) {
+static int guess_keyboard_device_path(char* buff, size_t size) {
 	int fd;
 	int rc;
 	struct libevdev* dev = NULL;
@@ -191,7 +215,7 @@ int guess_keyboard_device_path(char* buff, size_t size) {
 	return 1;
 }
 
-int check_keyboard_device_path(char* buff) {
+static int check_keyboard_device_path(char* buff) {
 	int fd;
 	int rc;
 	struct libevdev* dev = NULL;
@@ -224,102 +248,6 @@ int check_keyboard_device_path(char* buff) {
 	close(fd);
 	fprintf(stderr, "Device provided does not look like a keyboard\n");
 	return 1;
-}
-
-
-int grab_keyboard(int fd) {
-	int err = ioctl(fd, EVIOCGRAB, 1);
-	if(err < 0) {
-		perror("Failed to grab input device");
-	}
-	return err;
-}
-
-int ungrab_keyboard(int fd) {
-	int err = ioctl(fd, EVIOCGRAB, 0);
-	if(err < 0) {
-		perror("Failed to ungrab input device");
-	}
-	return err;
-}
-
-
-bool are_keys_released(int fd) {
-	uint8_t keys[KEY_STATE_MAX];
-	if(ioctl(fd, EVIOCGKEY(sizeof(keys)), keys) < 0) {
-		perror("EVIOCGKEY failed");
-		return false;
-	}
-	for(int i = 0; i < KEY_STATE_MAX; i++) {
-		if(keys[i]) {
-			return false;
-		}
-	}
-	return true;
-}
-
-
-bool key_combo_pressed(int* key_states, const int* keys, size_t n) {
-	if(!key_states[keys[0]]) return false; // first key is required
-	// rest are optional, check only if != -1
-	for(size_t i = 1; i < n; i++) {
-		if(keys[i] != -1 && !key_states[keys[i]]) { // if key is NOT -1 AND the key is not pressed
-			return false;
-		}
-	}
-	return true;
-}
-
-void wait_grab_until_release(int keyboard_fd) {
-	int err;
-	while(1) {
-		err = grab_keyboard(keyboard_fd);
-		if(err < 0) {
-			perror("error grabbing keyboard");
-			usleep(1000);
-			continue;
-		}
-		if(are_keys_released(keyboard_fd)) {
-			break;
-		}
-		err = ungrab_keyboard(keyboard_fd);
-		if(err < 0) {
-			perror("error ungrabbing keyboard");
-			usleep(1000);
-			continue;
-		}
-		usleep(1000);
-	}
-}
-
-void process_event(struct input_event* event, Mouse* m, bool* grabbing, bool* quit, int keyboard_fd) {
-	if(event->type != EV_KEY || event->code >= KEY_MAX) {
-		return;
-	}
-	int code = event->code;
-	int value = event->value;
-
-	m->key_states[code] = value;
-
-	bool start_combo_triggered = key_combo_pressed(m->key_states, START_COMBO_KEYS, START_COMBO_KEYS_SIZE);
-
-	if(!(*grabbing) && start_combo_triggered) {
-		*grabbing = true;
-		wait_grab_until_release(keyboard_fd);
-		memset(m->key_states, 0, sizeof(int) * KEY_MAX);
-	}
-
-	if(*grabbing) {
-		if(code == K_EXIT) {
-			memset(m->key_states, 0, sizeof(int) * KEY_MAX);
-			*grabbing = false;
-			ungrab_keyboard(keyboard_fd);
-		}
-		else if(code == K_END) {
-			*quit = true;
-			ungrab_keyboard(keyboard_fd);
-		}
-	}
 }
 
 int init_keyboard_fd(char* keyboard_path, size_t size) {
@@ -357,7 +285,12 @@ int init_mouse(Mouse* m, int uifd) {
 		perror("error allocating key_states array");
 		return 1;
 	}
+
 	m->speed = SPEED_NORMAL;
+	m->scroll_speed = SCROLL_SPEED_NORMAL;
+
+	m->scroll_fraction_x = 0;
+	m->scroll_fraction_y = 0;
 
 	m->click_tick = (struct timespec){0};
 	m->scroll_tick = (struct timespec){0};
@@ -381,7 +314,103 @@ void destroy_mouse(Mouse* m) {
 	free(m->key_states);
 }
 
-void event_loop(int keyboard_fd, Mouse* mouse) {
+static int grab_keyboard(int fd) {
+	int err = ioctl(fd, EVIOCGRAB, 1);
+	if(err < 0) {
+		perror("Failed to grab input device");
+	}
+	return err;
+}
+
+static int ungrab_keyboard(int fd) {
+	int err = ioctl(fd, EVIOCGRAB, 0);
+	if(err < 0) {
+		perror("Failed to ungrab input device");
+	}
+	return err;
+}
+
+
+static bool are_keys_released(int fd) {
+	uint8_t keys[KEY_STATE_MAX];
+	if(ioctl(fd, EVIOCGKEY(sizeof(keys)), keys) < 0) {
+		perror("EVIOCGKEY failed");
+		return false;
+	}
+	for(int i = 0; i < KEY_STATE_MAX; i++) {
+		if(keys[i]) {
+			return false;
+		}
+	}
+	return true;
+}
+
+
+static bool key_combo_pressed(int* key_states, const int* keys, size_t n) {
+	if(!key_states[keys[0]]) return false; // first key is required
+	// rest are optional, check only if != -1
+	for(size_t i = 1; i < n; i++) {
+		if(keys[i] != -1 && !key_states[keys[i]]) { // if key is NOT -1 AND the key is not pressed
+			return false;
+		}
+	}
+	return true;
+}
+
+static void wait_grab_until_release(int keyboard_fd) {
+	int err;
+	while(1) {
+		err = grab_keyboard(keyboard_fd);
+		if(err < 0) {
+			perror("error grabbing keyboard");
+			usleep(1000);
+			continue;
+		}
+		if(are_keys_released(keyboard_fd)) {
+			break;
+		}
+		err = ungrab_keyboard(keyboard_fd);
+		if(err < 0) {
+			perror("error ungrabbing keyboard");
+			usleep(1000);
+			continue;
+		}
+		usleep(1000);
+	}
+}
+
+static void process_event(struct input_event* event, Mouse* m, bool* grabbing, bool* quit, int keyboard_fd) {
+	if(event->type != EV_KEY || event->code >= KEY_MAX) {
+		return;
+	}
+	int code = event->code;
+	int value = event->value;
+
+	m->key_states[code] = value;
+
+	bool start_combo_triggered = key_combo_pressed(m->key_states, START_COMBO_KEYS, START_COMBO_KEYS_SIZE);
+
+	if(!(*grabbing) && start_combo_triggered) {
+		*grabbing = true;
+		wait_grab_until_release(keyboard_fd);
+		memset(m->key_states, 0, sizeof(int) * KEY_MAX);
+	}
+
+	if(*grabbing) {
+		if(code == K_EXIT) {
+			memset(m->key_states, 0, sizeof(int) * KEY_MAX);
+			*grabbing = false;
+			ungrab_keyboard(keyboard_fd);
+		}
+		else if(code == K_END) {
+			*quit = true;
+			ungrab_keyboard(keyboard_fd);
+		}
+	}
+}
+
+
+static void run_event_loop(int keyboard_fd, Mouse* mouse) {
 	bool quit = false;
 	bool grabbing = false;
 
@@ -446,7 +475,7 @@ int main() {
 		return 1;
 	}
 
-	event_loop(keyboard_fd, &mouse);
+	run_event_loop(keyboard_fd, &mouse);
 	
 	destroy_mouse(&mouse);
 	close(mouse_uifd);

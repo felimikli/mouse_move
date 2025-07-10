@@ -108,13 +108,20 @@
 #define FAST_MOD	M_ALT
 
 
-// speed in pixels per second
+// motion speed in pixels per second
 #define SPEED_SLOWER	100
 #define SPEED_SLOW	300
 #define SPEED_NORMAL	800
 #define SPEED_FAST	1000
 
+// scroll speed in detents per second
+#define SCROLL_SPEED_SLOWER	8
+#define SCROLL_SPEED_SLOW	12
+#define SCROLL_SPEED_NORMAL	20
+#define SCROLL_SPEED_FAST	30
 
-#define CLICK_DELAY_MS	10
+
+
+#define CLICK_DELAY_MS	25
 #define SCROLL_DELAY_MS	20
 #define MOTION_DELAY_MS	10 // less is smoother, anything less than 3 will result in no motion.
