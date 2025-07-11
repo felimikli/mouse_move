@@ -8,7 +8,6 @@ PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
 TARGET = $(BINDIR)/$(BIN)
 
-CAPABILITIES = cap_dac_read_search,cap_sys_admin=eip
 
 .PHONY: all clean install uninstall
 
@@ -22,9 +21,7 @@ clean:
 
 install: all
 	sudo install -Dm755 $(BIN) $(TARGET)
-	sudo setcap "$(CAPABILITIES)" $(TARGET)
 	@echo "Installed to $(TARGET)"
-	@echo "Capabilities set: $(CAPABILITIES)"
 
 uninstall:
 	sudo rm -f $(TARGET)
