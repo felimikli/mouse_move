@@ -1,125 +1,150 @@
 /*
- * IMPORTANT:
- * this program uses sudo and root access to read keyboard devices
- * this is bad and insecure so read the source code and use it at your own risk
- */
-
-/*
- * Install:
- * Clone the repository or just download the files
- * Edit the config.h file to your liking.
- * sudo make install
- */
-
-
-/*
- * Path to the keyboard input device.
+ * config.h - Configuration file for mouse_move
  *
- * You can set this manually by finding your keyboard:
+ * This file contains all configurable settings for the mouse_move program,
+ * which enables moving the mouse cursor using the keyboard.
  *
- *   - Run: ls /dev/input/by-id/
- *     Look for a device like: usb-Logitech_USB_Keyboard-event-kbd
- *     Then set:
+ * IMPORTANT SECURITY NOTE:
+ * This program requires sudo/root privileges to read keyboard input devices.
+ * Running programs with elevated privileges is a security risk.
+ * Review the source code carefully before using.
+ *
+ * USAGE:
+ *  - Edit this file to customize key bindings, device paths, and speed settings.
+ *  - Compile and install using: sudo make install
+ *  - For most cases, run the program in the background and start it automatically
+ *    at system startup (e.g., via .xinitrc, your i3 config, or systemd user service).
+ *  - You can still run it manually. Just type mouse_move
+ *
+ *  - Use the START_TOGGLE key combo to grab the keyboard and control the mouse.
+ *  - Use the EXIT key to release control without terminating the program.
+ *
+ *  - The K_END key is provided to force terminate the program if absolutely necessary,
+ *    but this should rarely be needed.
+ *
+ * DEVICE PATH:
+ * To specify the keyboard device, you can either:
+ *  1. Manually set KEYBOARD_DEVICE to the path of your keyboard device (recommended).
+ *     Examples:
  *       #define KEYBOARD_DEVICE "/dev/input/by-id/usb-Logitech_USB_Keyboard-event-kbd"
+ *     or
+ *       #define KEYBOARD_DEVICE "/dev/input/event3"
  *
- *   - Or run: cat /proc/bus/input/devices
- *     Look for a keyboard with EV=120013 (or similar) and note the "eventX".
- *     Then set:
- *       #define KEYBOARD_DEVICE "/dev/input/eventX"
+ *     To find your keyboard device:
+ *       - Run: ls /dev/input/by-id/
+ *       - Or check: cat /proc/bus/input/devices
+ *         Look for the keyboard entry with EV=120013 or similar.
  *
- * If you leave this as an empty string (""), the program will try to auto-detect
- * a keyboard using libevdev by scanning devices in /dev/input.
+ *  2. Leave KEYBOARD_DEVICE as an empty string ("") to enable auto-detection
+ *     (may not always pick the correct device).
+ *
+ * KEYBOARD LAYOUT:
+ * The program expects a QWERTY layout by default since it reads keys from evdev devices.
+ * If you use a different layout (e.g., Dvorak), remap keys accordingly.
+ * For example, to bind click to 'T' on Dvorak (which maps to 'K' on QWERTY), use:
+ *   #define K_BTN_LEFT KEY_K
+ *
+ * Future versions may add automatic layout detection.
+ *
+ ***********************************************************************
+ *                    BEGIN CONFIGURATION SETTINGS                    *
+ ***********************************************************************
+ */
+
+#ifndef CONFIG_H
+#define CONFIG_H
+
+/* 
+ * Path to the keyboard input device.
+ * Set this manually for best results, or leave as "" for auto-detection.
  */
 #define KEYBOARD_DEVICE ""
 
+/* Maximum number of input devices to scan during auto-detection */
+/* Shouldn't be changed for the most part */
 #define MAX_DEVICES 64
 
-/* 
- * Note that most probably the keyboard layout from the evdev device is qwerty.
- * If you have changed your layout, take that into account when setting this bindings.
- *
- * Example:
- *	If you want to click with T, but you changed your layout to dvorak,
- *	you should set:
- *		K_BTN_LEFT KEY_K
- *	because T in dvorak is in the position of K in qwerty
- *
- * Alternatively mess around with the bindings until you find the setup you want :)
- *	
- *
- * Support for automatic layout detection may be coming soon...
- */
 
 /*
- * Usage:
- * Either manually run 
- * mouse_move 
- * in the terminal,
- * or setup a shortcut for it
- *
- * example for i3:
- * bindsym $mod+space exec mouse_move
- *
- *
- * Once the program is running, press the START_TOGGLE key combo to grab the keyboard
- * while grabbing the keyboard you can move the mouse
- * to stop grabbing the keyboard press the EKIT key
- * to completely kill the program press the END key while grabbing the keyboard.
+ * KEY BINDINGS
+ * Modify these to change which keys control mouse movement, clicks,
+ * scrolling, and program control.
+ * Key codes are from evdev and correspond to a QWERTY layout by default.
  */
+
+#define K_END       KEY_X      /* Kill the program (should rarely be needed if run in background) */
+
+/* Start grabbing keyboard combo */
+/* Put all the keys that need to be pressed for this combo in the Array */
+#define START_COMBO_KEYS { KEY_TAB, KEY_LEFTMETA }
+
+
+#define K_EXIT      KEY_SPACE  /* Release grabbing and exit mouse control mode */
+
+/* Modifier keys for speed adjustment */
+#define M_CTRL      KEY_LEFTCTRL
+#define M_SHIFT     KEY_LEFTSHIFT
+#define M_ALT       KEY_LEFTALT
+
+/* Mouse movement keys */
+#define K_UP        KEY_K
+#define K_DOWN      KEY_J
+#define K_LEFT      KEY_H
+#define K_RIGHT     KEY_L
+
+/* Mouse buttons */
+#define K_BUTTON_LEFT    KEY_S
+#define K_BUTTON_MIDDLE  KEY_D
+#define K_BUTTON_RIGHT   KEY_F
+
+/* Scroll keys */
+#define K_SCROLL_UP      KEY_U
+#define K_SCROLL_DOWN    KEY_D
+#define K_SCROLL_LEFT    KEY_B
+#define K_SCROLL_RIGHT   KEY_W
+
 
 /*
- * The START_TOGGLE_1 must always be a key
- * if you want to just use that one key to start grabbing the keyboard,
- * set 2 and 3 to -1
- * if not you can activate each one by just assigning the keys you'd like for your combo
+ * SPEED MODIFIERS
+ * Hold these modifier keys while moving or scrolling to adjust speed.
  */
-#define START_TOGGLE_1	KEY_TAB
-#define START_TOGGLE_2	KEY_LEFTMETA
-#define START_TOGGLE_3	-1
+#define SLOWER_MOD   M_CTRL
+#define SLOW_MOD     M_SHIFT
+#define FAST_MOD     M_ALT
 
-#define K_END		KEY_X
+/*
+ * MOTION SPEEDS (pixels per second)
+ */
+#define SPEED_SLOWER  100
+#define SPEED_SLOW   400
+#define SPEED_NORMAL  800
+#define SPEED_FAST   1200
 
-#define M_CTRL		KEY_LEFTCTRL
-#define M_SHIFT		KEY_LEFTSHIFT
-#define M_ALT		KEY_LEFTALT
+/*
+ * SCROLL SPEEDS (scroll steps per second)
+ */
+#define SCROLL_SPEED_SLOWER 8
+#define SCROLL_SPEED_SLOW   12
+#define SCROLL_SPEED_NORMAL 20
+#define SCROLL_SPEED_FAST   30
 
-#define K_EXIT		KEY_SPACE
-
-#define K_UP		KEY_K
-#define K_DOWN		KEY_J
-#define K_LEFT		KEY_H
-#define K_RIGHT		KEY_L
-
-#define K_BUTTON_LEFT	KEY_S
-#define K_BUTTON_MIDDLE	KEY_D
-#define K_BUTTON_RIGHT	KEY_F
-
-#define K_SCROLL_UP	KEY_U
-#define K_SCROLL_DOWN	KEY_D
-
-#define K_SCROLL_LEFT	KEY_B
-#define K_SCROLL_RIGHT	KEY_W
-
-
-#define SLOWER_MOD	M_CTRL
-#define SLOW_MOD	M_SHIFT
-#define FAST_MOD	M_ALT
-
-
-// motion speed in pixels per second
-#define SPEED_SLOWER	100
-#define SPEED_SLOW	400
-#define SPEED_NORMAL	800
-#define SPEED_FAST	1200
-
-// scroll speed in detents per second
-#define SCROLL_SPEED_SLOWER	8
-#define SCROLL_SPEED_SLOW	12
-#define SCROLL_SPEED_NORMAL	20
-#define SCROLL_SPEED_FAST	30
+/*
+ * DELAYS (milliseconds)
+ * Controls responsiveness and smoothness.
+ * - CLICK_DELAY_MS: Minimum interval between clicks.
+ * - SCROLL_DELAY_MS: Scroll event refresh rate.
+ * - MOTION_DELAY_MS: Mouse movement refresh rate (lower = smoother).
+ *   Values below 3 may cause motion to fail.
+ */
+#define CLICK_DELAY_MS  25
+#define SCROLL_DELAY_MS 20
+#define MOTION_DELAY_MS 10
 
 
+/*
+ ***********************************************************************
+ *                            END CONFIGURATION                        *
+ ***********************************************************************
+ */
 
-#define CLICK_DELAY_MS	25
-#define SCROLL_DELAY_MS	20
-#define MOTION_DELAY_MS	10 // less is smoother, anything less than 3 will result in no motion.
+#endif /* CONFIG_H */

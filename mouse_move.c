@@ -25,8 +25,8 @@
 
 #define POLL_DELAY_MS MIN(MIN(CLICK_DELAY_MS, SCROLL_DELAY_MS), MOTION_DELAY_MS)
 
-static const int START_COMBO_KEYS[] = { START_TOGGLE_1, START_TOGGLE_2, START_TOGGLE_3 };
-static const size_t START_COMBO_KEYS_SIZE = sizeof(START_COMBO_KEYS) / sizeof(START_COMBO_KEYS[0]);
+static const int start_combo_keys[] = START_COMBO_KEYS;
+static const size_t start_combo_keys_size = sizeof(start_combo_keys) / sizeof(start_combo_keys[0]);
 
 typedef struct {
 	struct libevdev_uinput* uidev;
@@ -346,11 +346,9 @@ static bool are_keys_released(int fd) {
 }
 
 
-static bool key_combo_pressed(int* key_states, const int* keys, size_t n) {
-	if(!key_states[keys[0]]) return false; // first key is required
-	// rest are optional, check only if != -1
-	for(size_t i = 1; i < n; i++) {
-		if(keys[i] != -1 && !key_states[keys[i]]) { // if key is NOT -1 AND the key is not pressed
+static bool key_combo_pressed(int* key_states, const int* combo_keys, size_t n) {
+	for(size_t i = 0; i < n; i++) {
+		if(!key_states[combo_keys[i]]) {
 			return false;
 		}
 	}
@@ -388,7 +386,7 @@ static void process_event(struct input_event* event, Mouse* m, bool* grabbing, b
 
 	m->key_states[code] = value;
 
-	bool start_combo_triggered = key_combo_pressed(m->key_states, START_COMBO_KEYS, START_COMBO_KEYS_SIZE);
+	bool start_combo_triggered = key_combo_pressed(m->key_states, start_combo_keys, start_combo_keys_size);
 
 	if(!(*grabbing) && start_combo_triggered) {
 		*grabbing = true;
