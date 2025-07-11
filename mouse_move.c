@@ -25,8 +25,14 @@
 
 #define POLL_DELAY_MS MIN(MIN(CLICK_DELAY_MS, SCROLL_DELAY_MS), MOTION_DELAY_MS)
 
+static const int kill_combo_keys[] = KILL_COMBO_KEYS;
+static const size_t kill_combo_keys_size = sizeof(kill_combo_keys) / sizeof(kill_combo_keys[0]);
+
 static const int start_combo_keys[] = START_COMBO_KEYS;
 static const size_t start_combo_keys_size = sizeof(start_combo_keys) / sizeof(start_combo_keys[0]);
+
+static const int exit_combo_keys[] = EXIT_COMBO_KEYS;
+static const size_t exit_combo_keys_size = sizeof(exit_combo_keys) / sizeof(exit_combo_keys[0]);
 
 typedef struct {
 	struct libevdev_uinput* uidev;
@@ -386,21 +392,20 @@ static void process_event(struct input_event* event, Mouse* m, bool* grabbing, b
 
 	m->key_states[code] = value;
 
-	bool start_combo_triggered = key_combo_pressed(m->key_states, start_combo_keys, start_combo_keys_size);
 
-	if(!(*grabbing) && start_combo_triggered) {
+	if(!(*grabbing) && key_combo_pressed(m->key_states, start_combo_keys, start_combo_keys_size)) {
 		*grabbing = true;
 		wait_grab_until_release(keyboard_fd);
 		memset(m->key_states, 0, sizeof(int) * KEY_MAX);
 	}
 
 	if(*grabbing) {
-		if(code == K_EXIT) {
+		if(key_combo_pressed(m->key_states, exit_combo_keys, exit_combo_keys_size)) {
 			memset(m->key_states, 0, sizeof(int) * KEY_MAX);
 			*grabbing = false;
 			ungrab_keyboard(keyboard_fd);
 		}
-		else if(code == K_END) {
+		else if(key_combo_pressed(m->key_states, kill_combo_keys, kill_combo_keys_size)) {
 			*quit = true;
 			ungrab_keyboard(keyboard_fd);
 		}

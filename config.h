@@ -32,8 +32,8 @@
  *      sudo mouse_move
  *
  *  • To begin controlling the mouse, press the START_COMBO_KEYS.
- *  • To exit mouse control mode (without quitting the program), press K_EXIT.
- *  • To terminate the program completely, use K_END (rarely needed).
+ *  • To exit mouse control mode (without quitting the program), press EXIT_COMBO_KEYS.
+ *  • To terminate the program completely, use KILL_COMBO_KEYS (rarely needed).
  *
  * ─────────────────────────────────────────────────────────────────────────────
  *  NO ROOT MODE:
@@ -106,19 +106,14 @@
  * KEY BINDINGS
  ******************************************************************************/
 
-/* Emergency kill key — terminates program completely */
-#define K_END       KEY_X
+/* Emergency kill combo — terminates program completely */
+#define KILL_COMBO_KEYS		{ KEY_LEFTSHIFT, KEY_LEFTCTRL, KEY_X }
 
 /* Start combo — press all keys in this array simultaneously */
-#define START_COMBO_KEYS { KEY_TAB, KEY_LEFTMETA }
+#define START_COMBO_KEYS	{ KEY_TAB, KEY_LEFTMETA }
 
 /* Exit control mode without quitting the program */
-#define K_EXIT      KEY_SPACE
-
-/* Modifier keys used for speed control */
-#define M_CTRL      KEY_LEFTCTRL
-#define M_SHIFT     KEY_LEFTSHIFT
-#define M_ALT       KEY_LEFTALT
+#define EXIT_COMBO_KEYS		{ KEY_SPACE }
 
 /* Mouse movement */
 #define K_UP        KEY_K
@@ -128,7 +123,7 @@
 
 /* Mouse buttons */
 #define K_BUTTON_LEFT     KEY_S
-#define K_BUTTON_MIDDLE   KEY_D
+#define K_BUTTON_MIDDLE   KEY_E
 #define K_BUTTON_RIGHT    KEY_F
 
 /* Scroll directions */
@@ -143,9 +138,9 @@
  ******************************************************************************/
 
 /* Speed modifiers (used with movement/scroll keys) */
-#define SLOWER_MOD   M_CTRL
-#define SLOW_MOD     M_SHIFT
-#define FAST_MOD     M_ALT
+#define SLOWER_MOD   KEY_LEFTCTRL
+#define SLOW_MOD     KEY_LEFTSHIFT
+#define FAST_MOD     KEY_LEFTALT
 
 /* Movement speeds (in pixels per second) */
 #define SPEED_SLOWER   100
