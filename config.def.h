@@ -44,23 +44,28 @@
  *
  *  To run without sudo, add the following `udev` rules:
  *
- *  1. Create a file at:
- *      /etc/udev/rules.d/99-$USER.rules
+ *  1. Create a file:
+ *      sudo nano /etc/udev/rules.d/99-input.rules
  *
- *  2. Paste the following content:
+ *	And paste this content:
  *
- *      KERNEL=="uinput", GROUP="$USER", MODE:="0660"
- *      KERNEL=="event*", GROUP="$USER", NAME="input/%k", MODE="0660"
+ *      KERNEL=="uinput", GROUP="input", MODE="0660"
+ *      KERNEL=="event*", GROUP="input", MODE="0660"
  *
- *  3. Then reload your system:
- *      - Reboot your machine.
+ *  2. Add your user to the input group:
+ *	sudo usermod -aG input $USER
  *
- *  If it still doesn't work, the uinput module might not be loaded. You can fix this with:
+ *  3. Reload the rules and trigger:
+ *      sudo udevadm control --reload-rules
+ *      sudo udevadm trigger
  *
+ *  4. Make sure `uinput` is loaded at boot:
  *      echo "uinput" | sudo tee /etc/modules-load.d/uinput.conf
+ *      sudo modprobe uinput
  *
- *  Then reboot again.
+ *  5. Reboot your machine.
  *
+ *  You should now be able to run this program without `sudo`.
  * ─────────────────────────────────────────────────────────────────────────────
  *  DEVICE PATH:
  *
