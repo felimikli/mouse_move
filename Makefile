@@ -1,6 +1,6 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -O2
-LIBS = -levdev
+CFLAGS = -Wall -Wextra -O2 $(shell pkg-config --cflags libevdev)
+LIBS = $(shell pkg-config --libs libevdev)
 SRC = mouse_move.c
 BIN = mouse_move
 

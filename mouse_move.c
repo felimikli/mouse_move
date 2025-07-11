@@ -7,7 +7,6 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <poll.h>
-#include <libudev.h>
 #include <libevdev/libevdev.h>
 #include <libevdev/libevdev-uinput.h>
 #include <sys/ioctl.h>
