@@ -170,7 +170,7 @@
 /* Scroll update interval (ms) */
 #define SCROLL_DELAY_MS   20
 
-/* Motion update interval (ms) — lower = smoother, but <3ms may break motion */
+/* Motion update interval (ms) — lower = smoother*/
 #define MOTION_DELAY_MS   10
 
 

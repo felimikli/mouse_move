@@ -36,7 +36,9 @@ static const size_t exit_combo_keys_size = sizeof(exit_combo_keys) / sizeof(exit
 typedef struct {
 	struct libevdev_uinput* uidev;
 	int* key_states;
-	int speed;
+	int motion_speed;
+	float motion_fraction_x;
+	float motion_fraction_y;
 	int scroll_speed;
 	float scroll_fraction_x;
 	float scroll_fraction_y;
@@ -64,18 +66,28 @@ static void handle_motion(Mouse* m) {
 	if(m->key_states[K_RIGHT]) x++;
 	if(x == 0 && y == 0) return;
 	
-	m->speed = SPEED_NORMAL;
-	if(m->key_states[FAST_MOD]) m->speed = SPEED_FAST;
-	if(m->key_states[SLOW_MOD]) m->speed = SPEED_SLOW;
-	if(m->key_states[SLOWER_MOD]) m->speed = SPEED_SLOWER;
+	m->motion_speed = SPEED_NORMAL;
+	if(m->key_states[FAST_MOD]) m->motion_speed = SPEED_FAST;
+	if(m->key_states[SLOW_MOD]) m->motion_speed = SPEED_SLOW;
+	if(m->key_states[SLOWER_MOD]) m->motion_speed = SPEED_SLOWER;
 
 	// speed per second
-	float motion_factor = m->speed * (MOTION_DELAY_MS / 1e3f);
-	int x_pixels = (int) ( x * motion_factor );
-	int y_pixels = (int) ( y * motion_factor );
+	float motion_factor = m->motion_speed * (MOTION_DELAY_MS / 1e3f);
 
-	libevdev_uinput_write_event(m->uidev, EV_REL, REL_X, x_pixels);
-	libevdev_uinput_write_event(m->uidev, EV_REL, REL_Y, y_pixels);
+	// accumulate movement less than a pixel
+	m->motion_fraction_x += x * motion_factor;
+	m->motion_fraction_y += y * motion_factor;
+	int x_pixels = (int) m->motion_fraction_x;
+	int y_pixels = (int) m->motion_fraction_y;
+	m->motion_fraction_x -= x_pixels;
+	m->motion_fraction_y -= y_pixels;
+
+	if(x_pixels != 0) {
+		libevdev_uinput_write_event(m->uidev, EV_REL, REL_X, x_pixels);
+	}
+	if(y_pixels != 0) {
+		libevdev_uinput_write_event(m->uidev, EV_REL, REL_Y, y_pixels);
+	}
 	libevdev_uinput_write_event(m->uidev, EV_SYN, SYN_REPORT, 0);
 }
 
@@ -291,9 +303,11 @@ int init_mouse(Mouse* m, int uifd) {
 		return 1;
 	}
 
-	m->speed = SPEED_NORMAL;
-	m->scroll_speed = SCROLL_SPEED_NORMAL;
+	m->motion_speed = SPEED_NORMAL;
+	m->motion_fraction_x = 0;
+	m->motion_fraction_y = 0;
 
+	m->scroll_speed = SCROLL_SPEED_NORMAL;
 	m->scroll_fraction_x = 0;
 	m->scroll_fraction_y = 0;
 
