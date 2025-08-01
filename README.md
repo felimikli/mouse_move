@@ -42,6 +42,12 @@ git clone https://felimikli/mouse_move
 cd mouse_move
 sudo make install
 ```
+
+Then make sure to have a config.h file:
+```
+cp config.def.h config.h
+```
+
 ---
 
 ## Configuration
